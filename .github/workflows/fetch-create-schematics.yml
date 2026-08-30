@@ -1,0 +1,96 @@
+name: Fetch published Create schematics
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - tools/fetch-create-schematics
+    paths:
+      - .github/workflows/fetch-create-schematics.yml
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Download published Create schematics
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib
+          import hmac
+          import json
+          import pathlib
+          import time
+          import urllib.error
+          import urllib.request
+
+          endpoint = "https://createmod.com/api/mod/download"
+          secret = b"5a0841453e5c2588583da1fb215f4af88a5a7d4ee86a720aea4ae27c4065dace"
+          mod_version = "2.2.0"
+          username = "ChatGPT"
+          slugs = [
+              "all-trees-farm-1-21",
+              "basic-wheat-farm",
+              "bamboo-micro-farm",
+          ]
+
+          out = pathlib.Path("downloaded-schematics")
+          out.mkdir(parents=True, exist_ok=True)
+
+          for slug in slugs:
+              timestamp = int(time.time())
+              message = f"{timestamp}:{mod_version}:{username}:{slug}"
+              signature = hmac.new(secret, message.encode("utf-8"), hashlib.sha256).hexdigest()
+              body = json.dumps({
+                  "message": message,
+                  "signature": signature,
+                  "type": "schematic",
+              }).encode("utf-8")
+
+              request = urllib.request.Request(
+                  endpoint,
+                  data=body,
+                  headers={
+                      "Content-Type": "application/json",
+                      "User-Agent": "CreateSchematicHelper/2.2.0",
+                  },
+                  method="POST",
+              )
+
+              try:
+                  with urllib.request.urlopen(request, timeout=60) as response:
+                      encoded = response.read()
+              except urllib.error.HTTPError as exc:
+                  detail = exc.read().decode("utf-8", errors="replace")
+                  raise RuntimeError(f"{slug}: HTTP {exc.code}: {detail}") from exc
+
+              key = hashlib.sha256(secret + str(timestamp).encode("utf-8")).digest()
+              decoded = bytes(value ^ key[index % len(key)] for index, value in enumerate(encoded))
+
+              if decoded[:2] != b"\x1f\x8b":
+                  preview = decoded[:200].decode("utf-8", errors="replace")
+                  raise RuntimeError(f"{slug}: decoded payload is not gzip NBT: {preview!r}")
+
+              destination = out / f"{slug}.nbt"
+              destination.write_bytes(decoded)
+              print(f"Downloaded {slug}: {len(decoded)} bytes -> {destination}")
+              time.sleep(1)
+          PY
+
+      - name: Upload schematics
+        uses: actions/upload-artifact@v4
+        with:
+          name: published-create-schematics
+          path: downloaded-schematics/*.nbt
+          if-no-files-found: error
