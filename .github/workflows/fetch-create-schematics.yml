@@ -43,6 +43,11 @@ jobs:
               "all-trees-farm-1-21",
               "basic-wheat-farm",
               "bamboo-micro-farm",
+              "automatic-sorter",
+              "easy-storage-system",
+              "tntc-cannon",
+              "gold-farm-k",
+              "advanced-house",
           ]
 
           out = pathlib.Path("downloaded-schematics")
